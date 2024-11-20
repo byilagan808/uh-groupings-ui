@@ -10,10 +10,9 @@
      * @param $uibModal - the UI Bootstrap service for creating modals
      * @param dataProvider - service that handles redirection to the feedback page upon error
      * @param groupingsService - service for creating requests to the groupings API
-     * @param Message - display messages
      */
 
-    function GeneralJsController($scope, $controller, $window, $uibModal, groupingsService, dataProvider, Message) {
+    function GeneralJsController($scope, $controller, $window, $uibModal, groupingsService, dataProvider ) {
         // This is a regex Pattern that contains all valid UH Identifiers which consists of uid (Username) and uhUuid (UH Numbers) chars.
         $scope.uhIdentifierPattern = new RegExp("^[_?a-z-?@?0-9]{2,64}$");
         $scope.currentUser = {};
@@ -31,17 +30,6 @@
         $scope.availableProfiles = [];
 
         angular.extend(this, $controller("TableJsController", { $scope }));
-
-        /**
-         * Get the uid of the current user
-         */
-        groupingsService.getCurrentUser((res) => {
-            $scope.currentUser = {
-                uid: res.data.uid,
-                uhUuid: res.data.uhUuid
-            };
-            $scope.feedbackEmail = $scope.currentUser.uid + Message.Csv.EMAIL_SUFFIX;
-        });
 
         /**
          * Shows/hides admin tabs: Manage Groupings, Manage Admins, Manage Subject
@@ -149,6 +137,7 @@
             $scope.emptySelect = false;
             $scope.containsInput = false;
             $scope.invalidInput = false;
+            $scope.containsDeptAcc = false;
             $scope.addInputError = false;
             $scope.removeInputError = false;
         };
@@ -295,6 +284,17 @@
             });
         };
 
+        /**
+         * Checks if a member is a departmental account
+         * A departmental account is characterized by having the same uid as its uhUuid, or having a blank uhUuid
+         * @param {object[]} membersToAdd - members to add to a group or admin
+         * @returns {boolean} - True if a member is a departmental account
+         */
+        $scope.checkForDeptAccount = (membersToAdd) => {
+            return membersToAdd.some(member =>
+                member['uid'] === member['uhUuid'] || member['uhUuid'] === ""
+            );
+        }
     }
 
     UHGroupingsApp.controller("GeneralJsController", GeneralJsController);

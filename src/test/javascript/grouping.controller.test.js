@@ -800,6 +800,8 @@ describe("GroupingController", () => {
         const invalid = { resultCode: "FAILURE", invalid: uhIdentifiers, results: [] };
 
         const member = ["testiwta"];
+        const memberDept = ["testiwt2"];
+        const membersDept = ["testiwta", "testiwt2"];
         const members = ["testiwta", "testiwtb"];
         const memberAttributeResultsSingle = {
             resultCode: "SUCCESS",
@@ -905,10 +907,12 @@ describe("GroupingController", () => {
         });
 
         it("should set $scope.isBatchImport", () => {
+            scope.isAddingMembers = false;
             scope.isBatchImport = true;
             scope.addMembers("Include", uhIdentifiers);
             expect(scope.isBatchImport).toBeFalse();
 
+            scope.isAddingMembers = false;
             scope.isBatchImport = false;
             const arr = [];
             for (let i = 0; i < 101; i++) {
@@ -916,6 +920,17 @@ describe("GroupingController", () => {
             }
             scope.addMembers("Include", arr);
             expect(scope.isBatchImport).toBeTrue();
+        });
+
+        it("should not call functions within $scope.addMembers if $scope.isAddingMembers is true", () => {
+            scope.isAddingMembers = true;
+
+            spyOn(gs, 'getMemberAttributeResultsAsync');
+            spyOn(gs, 'getMemberAttributeResults');
+            scope.addMembers("Include", uhIdentifiers);
+
+            expect(gs.getMemberAttributeResultsAsync).not.toHaveBeenCalled();
+            expect(gs.getMemberAttributeResults).not.toHaveBeenCalled();
         });
 
         it("should filter out the members to add that already exist in the list", () => {
@@ -1008,7 +1023,7 @@ describe("GroupingController", () => {
                     }
                     scope.addMembers("Include", arr);
 
-                    httpBackend.expectPOST(BASE_URL + "members", arr).respond(200, []);
+                    httpBackend.expectPOST(BASE_URL + "members", arr).respond(200, results);
                     httpBackend.flush();
 
                     expect(scope.displayImportConfirmationModal).toHaveBeenCalled();
@@ -1027,6 +1042,28 @@ describe("GroupingController", () => {
                         uhIdentifiers: member,
                         listName: "Include"
                     });
+                });
+
+                it("should call $scope.displayDynamicModal() when trying to add a single dept account to Owners", () => {
+                    spyOn(scope, 'displayDynamicModal');
+                    scope.addMembers("owners", memberDept);
+
+                    const deptResults = { resultCode: "SUCCESS", invalid: [], results: ['testiwt2'] };
+                    httpBackend.expectPOST(BASE_URL + "members", ['testiwt2']).respond(200, deptResults);
+                    httpBackend.flush();
+
+                    expect(scope.displayDynamicModal).toHaveBeenCalled();
+                });
+
+                it("should call $scope.displayDynamicModal() when trying to add a dept account along with other members to Owners", () => {
+                    spyOn(scope, 'displayDynamicModal');
+                    scope.addMembers("owners", membersDept);
+
+                    const deptResults = { resultCode: "SUCCESS", invalid: [], results: [membersDept] };
+                    httpBackend.expectPOST(BASE_URL + "members", membersDept).respond(200, deptResults);
+                    httpBackend.flush();
+
+                    expect(scope.displayDynamicModal).toHaveBeenCalled();
                 });
             });
 
@@ -2471,11 +2508,11 @@ describe("GroupingController", () => {
             };
         });
 
-        it("should call the setSyncDest", () => {
-            spyOn(gs, "setSyncDest");
+        it("should call the updateSyncDest", () => {
+            spyOn(gs, "updateSyncDest");
             scope.syncDestArray.push(testSync);
             scope.updateSingleSyncDest(testSync.name);
-            expect(gs.setSyncDest).toHaveBeenCalled();
+            expect(gs.updateSyncDest).toHaveBeenCalled();
         });
 
         it("should call getSyncDestValueInArray", () => {

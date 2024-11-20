@@ -391,9 +391,8 @@
             /**
              * Toggle the given sync destination.
              */
-            setSyncDest(path, syncDestId, turnOn, onSuccess, onError) {
-                let endpoint = BASE_URL + "groupings/" + path + "/syncDests/" + syncDestId;
-                endpoint = (turnOn) ? endpoint.concat("/enable") : endpoint.concat("/disable");
+            updateSyncDest(path, syncDestId, status, onSuccess, onError) {
+                let endpoint = `${BASE_URL}groupings/${path}/syncDests/${syncDestId}/${status}`;
                 dataProvider.updateData(endpoint, onSuccess, onError);
             },
 
@@ -424,8 +423,8 @@
             /**
              * Checks if the owner of a grouping is the sole owner
              */
-            isSoleOwner(path, uidToCheck, onSuccess, onError) {
-                let endpoint = BASE_URL + path + "/owners/" + uidToCheck;
+            getNumberOfOwners(path, uidToCheck, onSuccess, onError) {
+                let endpoint = BASE_URL + path + "/owners/" + uidToCheck + "/count";
                 dataProvider.loadData(endpoint, onSuccess, onError);
             },
 

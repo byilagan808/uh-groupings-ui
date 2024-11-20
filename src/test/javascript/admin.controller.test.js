@@ -270,7 +270,12 @@ describe("AdminController", function () {
     });
 
     describe("checkSoleOwner", () => {
-        let res = {uid: "testUid", name: "testName", uhUuid: "testId"};
+        const res = {
+            resultCode: "SUCCESS",
+            invalid: [],
+            results: [{ uid: "testUid", name: "testName", uhUuid: "testId" }]
+        };
+
         it("should empty soleOwnerGroupingNames", () => {
             scope.soleOwnerGroupingNames = ["test1", "test2"];
             scope.selectedOwnedGroupings = ["test"];
@@ -432,12 +437,25 @@ describe("AdminController", function () {
             expect(scope.containsInput).toBeTrue();
         });
 
-        it("should display the add modal", () => {
-            spyOn(scope, "displayAddModal");
-            scope.adminToAdd = uhIdentifiers;
+        it("should check if the admin to add is a departmental account", () => {
+            scope.containsDeptAcc = false;
+            scope.adminToAdd = "testiwt2";
             scope.addAdmin();
 
-            httpBackend.expectPOST(BASE_URL + "members", [uhIdentifiers]).respond(200, results);
+            httpBackend.expectPOST(BASE_URL + "members", ['testiwt2']).respond(200, results);
+            httpBackend.flush();
+
+            expect(scope.user).toBe(scope.adminToAdd);
+            expect(scope.containsDeptAcc).toBeTrue();
+        });
+
+        it("should display the add modal", () => {
+            spyOn(scope, "displayAddModal");
+            scope.adminToAdd = "testiwta";
+            scope.addAdmin();
+
+            const results = { resultCode: "SUCCESS", invalid: [], results: [{ uid: "testiwta", uhUuid: "99997010" }] };
+            httpBackend.expectPOST(BASE_URL + "members", ['testiwta']).respond(200, results);
             httpBackend.flush();
 
             expect(scope.user).toEqual(scope.adminToAdd);
@@ -497,13 +515,6 @@ describe("AdminController", function () {
             scope.displayRemoveFromGroupsModal(options);
 
             expect(scope.showWarningRemovingSelf).toHaveBeenCalled();
-        });
-
-        it("should call groupingsService", () => {
-            spyOn(gs, "getMemberAttributeResults").and.callThrough();
-            scope.displayRemoveFromGroupsModal(options);
-
-            expect(gs.getMemberAttributeResults).toHaveBeenCalled();
         });
     });
 

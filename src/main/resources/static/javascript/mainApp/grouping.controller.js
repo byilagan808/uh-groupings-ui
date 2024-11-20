@@ -83,6 +83,7 @@
         $scope.membersInList = "";
         $scope.isMultiAdd = false;
         $scope.hasDeptAccount = false;
+        $scope.isAddingMembers = false;
 
         // Remove members
         $scope.multiRemoveResults = [];
@@ -666,12 +667,20 @@
          * @param {Object[]|null} uhIdentifiers
          */
         $scope.addMembers = (listName, uhIdentifiers) => {
+            // Prevent multiple asynchronous calls of addMembers
+            if ($scope.isAddingMembers) {
+                return;
+            }
+            $scope.isAddingMembers = true;
+
             // If uhIdentifiers parameter is null, get member input from $scope.manageMembers
             uhIdentifiers = $scope.sanitizer(uhIdentifiers ?? $scope.parseAddRemoveInputStr($scope.manageMembers));
             $scope.listName = listName;
+
             // Check if uhIdentifiers/member input is empty
             if (_.isEmpty(uhIdentifiers)) {
                 $scope.emptyInput = true;
+                $scope.isAddingMembers = false;
                 return;
             }
             // Prevent adding more than Threshold.MAX_IMPORT
@@ -679,6 +688,7 @@
                 $scope.displayDynamicModal(
                     Message.Title.IMPORT_OUT_OF_BOUNDS,
                     Message.Body.IMPORT_OUT_OF_BOUNDS);
+                $scope.isAddingMembers = false;
                 return;
             }
             // Check for members already in list, display error when all members to add already exist in the list
@@ -691,6 +701,7 @@
                 } else {
                     $scope.errorDismissed = false;
                 }
+                $scope.isAddingMembers = false;
                 return;
             }
 
@@ -706,6 +717,7 @@
 
             if (_.isEmpty(uhIdentifiers)) {
                 $scope.containsInput = true;
+                $scope.isAddingMembers = false;
                 return;
             }
 
@@ -713,7 +725,7 @@
 
             // Get attributes for each member
             getMemberAttributeResults(uhIdentifiers, (res) => {
-                $scope.waitingForImportResponse = false;
+                $scope.waitingForImportResponse = false; // Small spinner off
                 if (!_.isEmpty(res.invalid)) {
                     $scope.invalidMembers = res.invalid;
                     $scope.addInputError = true;
@@ -721,9 +733,21 @@
                         $scope.displayImportErrorModal();
                         $scope.addInputError = false;
                     }
-                    $scope.waitingForImportResponse = false; // Small spinner off
+                    $scope.isAddingMembers = false;
                     return;
                 }
+
+                // Prevent departmental accounts from being added as Owners
+                $scope.hasDeptAccount = $scope.checkForDeptAccount(res.results);
+                if (listName === 'owners' && $scope.hasDeptAccount) {
+                    $scope.displayDynamicModal(
+                        Message.Title.OWNER_NOT_ADDED,
+                        Message.Body.OWNER_NOT_ADDED
+                    );
+                    $scope.isAddingMembers = false;
+                    return;
+                }
+
                 // Display the appropriate modal
                 if ($scope.isBatchImport) {
                     $scope.displayImportConfirmationModal(listName, uhIdentifiers);
@@ -734,11 +758,13 @@
                         listName
                     });
                 }
+                $scope.isAddingMembers = false;
                 }, (res) => {
                     // Display API error modal
                     $scope.waitingForImportResponse = false;
                     $scope.resStatus = res.status;
                     $scope.displayApiErrorModal();
+                    $scope.isAddingMembers = false;
                 });
         };
 
@@ -814,15 +840,7 @@
 
             $scope.listName = options.listName;
             $scope.isMultiAdd = uhIdentifiers.length > 1;
-            $scope.hasDeptAccount = false;
-
-            // Check if there is a dept account to be added.
-            for (const member of membersAttributesResults) {
-                if (member['uid'] === member['uhUuid']) {
-                    $scope.hasDeptAccount = true;
-                    break;
-                }
-            }
+            $scope.hasDeptAccount = $scope.checkForDeptAccount(membersAttributesResults);
 
             // Sets information to be displayed in add/multiAdd modal
             $scope.multiAddResults = membersAttributesResults;
@@ -1117,6 +1135,9 @@
             $scope.isMultiRemove = _.isEmpty($scope.multiRemoveResults)
                 ? $scope.membersToRemove.length > 1
                 : $scope.multiRemoveResults.length > 1;
+            if ($scope.isMultiRemove) {
+                $scope.addInBasis($scope.multiRemoveResults);
+            }
 
             // Open remove or multiRemove modal and set modal red when removing yourself (currentUser) from owners
             const templateUrl = $scope.isMultiRemove ? "modal/multiRemoveModal" : "modal/removeModal";
@@ -1586,7 +1607,7 @@
         $scope.updateSingleSyncDest = (syncDestName) => {
             const groupingPath = $scope.selectedGrouping.path;
             const syncDestOn = $scope.getSyncDestValueInArray(syncDestName);
-            groupingsService.setSyncDest(groupingPath, syncDestName, syncDestOn, handleSuccessfulPreferenceToggle, handleUnsuccessfulRequest);
+            groupingsService.updateSyncDest(groupingPath, syncDestName, syncDestOn, handleSuccessfulPreferenceToggle, handleUnsuccessfulRequest);
         };
 
         /**

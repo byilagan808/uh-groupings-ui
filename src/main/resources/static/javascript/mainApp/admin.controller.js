@@ -28,6 +28,7 @@
         $scope.selectedOwnedGroupingsNames = [];
         $scope.allGroupingsLoading = false;
         $scope.userGroupingInformationLoading = false;
+        $scope.loadingOwners = false;
 
         let PAGE_SIZE = 20;
 
@@ -40,7 +41,7 @@
             $scope.adminsList = _.sortBy(res.members, "name");
             $scope.pagedItemsAdmins = $scope.objToPageArray($scope.adminsList, PAGE_SIZE);
             $scope.loading = false;
-        }
+        };
 
         /**
          * Callback which takes the admin tab data and moves it into groupingsList, the object
@@ -50,7 +51,7 @@
             $scope.groupingsList = _.sortBy(res.groupingPaths, "name");
             $scope.pagedItemsGroupings = $scope.objToPageArray($scope.groupingsList, PAGE_SIZE);
             $scope.allGroupingsLoading = false;
-        }
+        };
 
         /**
          * Complete initialization by fetching a list of admins and list of all groupings.
@@ -78,7 +79,7 @@
             $scope.subjectList = _.sortBy(res.results, "name");
             $scope.filter($scope.subjectList, "pagedItemsSubject", "currentPageSubject", $scope.subjectQuery, true);
             $scope.user = $scope.subjectToLookup;
-            $scope.userGroupingInformationLoading = false
+            $scope.userGroupingInformationLoading = false;
         };
         $scope.searchForUserGroupingInformationOnErrorCallback = (res) => {
             $scope.subjectList = [];
@@ -140,11 +141,9 @@
             if (res === "") {
                 return;
             }
-            let memberToRemove = {
-                uid: res.uid,
-                name: res.name,
-                uhUuid: res.uhUuid
-            };
+
+            const { uid, name, uhUuid } = res.results[0];
+            const memberToRemove = { uid, name, uhUuid };
 
             $scope.soleOwnerGroupingNames = [];
 
@@ -152,8 +151,8 @@
                 $scope.removeFromGroupsCallbackOnSuccess(memberToRemove);
             }
             _.forEach($scope.selectedOwnedGroupings, (grouping) => {
-                    groupingsService.isSoleOwner(grouping.path, memberToRemove.uid, (res) => {
-                        if (res) {
+                    groupingsService.getNumberOfOwners(grouping.path, memberToRemove.uid, (res) => {
+                        if (res === 1) {
                             $scope.soleOwnerGroupingNames.push(grouping.name);
                         }
                         if (grouping === $scope.selectedOwnedGroupings[$scope.selectedOwnedGroupings.length - 1]) {
@@ -190,7 +189,8 @@
             $scope.createGroupPathsAndNames($scope.pagedItemsSubject[$scope.currentPageSubject], $scope.selectedGroupingsNames, $scope.selectedGroupingsPaths, $scope.selectedOwnedGroupingsNames, $scope.selectedOwnedGroupings);
 
             if ($scope.subjectToLookup != null) {
-                groupingsService.getMemberAttributeResults($scope.subjectToLookup, $scope.checkSoleOwner);
+                const validUser = $scope.sanitizer($scope.subjectToLookup);
+                groupingsService.getMemberAttributeResults([validUser], $scope.checkSoleOwner);
             }
         };
 
@@ -259,6 +259,12 @@
             }
 
             groupingsService.getMemberAttributeResults([sanitizedAdmin], (res) => {
+                // Prevent departmental accounts from being added as admins
+                $scope.isDeptAccount = $scope.checkForDeptAccount(res.results);
+                if ($scope.isDeptAccount) {
+                    $scope.containsDeptAcc = true;
+                    return;
+                }
                 $scope.displayAddModal({
                     membersAttributes: res,
                     uhIdentifiers: sanitizedAdmin,
@@ -305,38 +311,22 @@
          * @param {object} options.listNames - groups the user is being removed from
          */
         $scope.displayRemoveFromGroupsModal = (options) => {
-            const memberToRemove = options.member.uhUuid;
-            const sanitizedUser = $scope.sanitizer(memberToRemove);
             $scope.memberToRemove = options.member;
             $scope.groupPaths = options.groupPaths;
             $scope.listNames = options.listNames.join(", ");
 
-            const windowClass = $scope.showWarningRemovingSelf() ? "modal-danger" : "";
+            $scope.removeFromGroupsModalInstance = $uibModal.open({
+                templateUrl: "modal/removeFromGroupsModal",
+                windowClass: $scope.showWarningRemovingSelf() ? "modal-danger" : "",
+                scope: $scope,
+                backdrop: "static",
+                keyboard: false,
+                ariaLabelledBy: "remove-from-groups-modal"
+            });
 
-            groupingsService.getMemberAttributeResults(sanitizedUser, (subject) => {
-                if (subject === "") {
-                    return;
-                } else {
-                    $scope.initMemberDisplayName(subject);
-                }
-                $scope.removeFromGroupsModalInstance = $uibModal.open({
-                    templateUrl: "modal/removeFromGroupsModal",
-                    windowClass,
-                    scope: $scope,
-                    backdrop: "static",
-                    keyboard: false,
-                    ariaLabelledBy: "remove-from-groups-modal"
-                });
-
-                $scope.removeFromGroupsModalInstance.result.then(() => {
-                    $scope.loading = true;
-                    let memberToRemove = options.member.uhUuid;
-                    let groupingPath = $scope.groupPaths;
-                    groupingsService.removeFromGroups(groupingPath, memberToRemove, handleRemoveFromGroupsOnSuccess, handleRemoveFromGroupsOnError);
-                }, () => {/* onRejected: handles modal promise rejection */});
-            }, (res) => {
-                $scope.user = memberToRemove;
-                $scope.resStatus = res.status;
+            $scope.removeFromGroupsModalInstance.result.then(() => {
+                $scope.loading = true;
+                groupingsService.removeFromGroups($scope.groupPaths, $scope.memberToRemove.uhUuid, handleRemoveFromGroupsOnSuccess, handleRemoveFromGroupsOnError);
             });
         };
 
@@ -427,6 +417,7 @@
          */
         $scope.handleGroupingOwnersOnSuccess = (res) => {
             $scope.loading = false;
+            $scope.loadingOwners = false;
             $scope.owners = [];
 
             res.members.forEach((member) => {
@@ -445,6 +436,7 @@
          */
         $scope.handleGroupingOwnersOnError = () => {
             $scope.loading = false;
+            $scope.loadingOwners = false;
             $scope.displayDynamicModal(Message.Title.DISPLAY_OWNERS_ERROR, Message.Body.DISPLAY_OWNERS_ERROR);
         };
 
@@ -469,15 +461,21 @@
          * @param groupingPath - The path of the grouping to display owners
          */
         $scope.getGroupingOwnersOnClick = (groupingPath) => {
+            // Prevent multiple triggers while loading modal
+            if ($scope.loadingOwners) {
+                return;
+            }
+            $scope.loadingOwners = true;
             $scope.ownersModalGroupingPath = groupingPath;
             groupingsService.groupingOwners($scope.ownersModalGroupingPath, $scope.handleGroupingOwnersOnSuccess, $scope.handleGroupingOwnersOnError);
         };
 
         $scope.throwException = () => {
-            groupingsService.throwException(() => {}, () => {
+            groupingsService.throwException(() => {
+            }, () => {
                 $scope.displayApiErrorModal();
             });
-        }
+        };
     }
 
     UHGroupingsApp.controller("AdminJsController", AdminJsController);
