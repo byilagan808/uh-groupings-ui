@@ -3198,6 +3198,317 @@ describe("GroupingController", () => {
 
     });
 
+    //Test for helper functions that save and restore the opt-in and opt-out states
+
+    describe("initOptPreferenceStatuses and resetOptPreferenceStatuses", () => {
+        it("should initialize initialAllowOptIn and initialAllowOptOut from current values", () => {
+
+            scope.allowOptIn = true;
+            scope.allowOptOut = false;
+
+            scope.initOptPreferenceStatuses();
+
+            expect(scope.initialAllowOptIn).toBe(true);
+            expect(scope.initialAllowOptOut).toBe(false);
+        });
+
+        it("should reset allowOptIn and allowOptOut back to their initial values", () => {
+            scope.allowOptIn = true;
+            scope.allowOptOut = false;
+
+            scope.initOptPreferenceStatuses();
+
+            scope.allowOptIn = false;
+            scope.allowOptOut = true;
+
+            scope.resetOptPreferenceStatuses();
+
+            expect(scope.allowOptIn).toBe(true);
+            expect(scope.allowOptOut).toBe(false);
+        });
+    });
+
+    // Checking for preferences changes
+    describe("anyOptPreferenceChanged", () => {
+        beforeEach(() => {
+            scope.initialAllowOptIn = true;
+            scope.initialAllowOptOut = false;
+        });
+
+        it("should return false when no preferences have changed", () => {
+            scope.allowOptIn = true;
+            scope.allowOptOut = false;
+
+            expect(scope.anyOptPreferenceChanged()).toBeFalse();
+        });
+
+        it("should return true when allowOptIn has changed", () => {
+            scope.allowOptIn = false;
+            scope.allowOptOut = false;
+
+            expect(scope.anyOptPreferenceChanged()).toBeTrue();
+        });
+
+        it("should return true when allowOptOut has changed", () => {
+            scope.allowOptIn = true;
+            scope.allowOptOut = true;
+
+            expect(scope.anyOptPreferenceChanged()).toBeTrue();
+        });
+    });
+
+    // Tests for the message builder that explains the opt-in/opt-out status to the user.
+    describe("getOptStatus", () => {
+        it("should describe enabling opt-in when only opt-in changed from false to true", () => {
+            scope.initialAllowOptIn = false;
+            scope.initialAllowOptOut = false;
+
+            scope.allowOptIn = true;
+            scope.allowOptOut = false;
+
+            const status = scope.getOptStatus();
+
+            expect(status).toBe("Opt-in has been enabled. Members may opt in.");
+        });
+
+        it("should describe disabling opt-in when only opt-in changed from true to false", () => {
+            scope.initialAllowOptIn = true;
+            scope.initialAllowOptOut = false;
+            scope.allowOptIn = false;
+            scope.allowOptOut = false;
+
+            const status = scope.getOptStatus();
+
+            expect(status).toBe("Opt-in has been disabled. Members may not opt in.");
+        });
+
+        it("should describe enabling opt-out when only opt-out changed from false to true", () => {
+            scope.initialAllowOptIn = false;
+            scope.initialAllowOptOut = false;
+            scope.allowOptIn = false;
+            scope.allowOptOut = true;
+
+            const status = scope.getOptStatus();
+
+            expect(status).toBe("Opt-out has been enabled. Members may opt out.");
+        });
+
+        it("should describe disabling opt-out when only opt-out changed from true to false", () => {
+            scope.initialAllowOptIn = false;
+            scope.initialAllowOptOut = true;
+            scope.allowOptIn = false;
+            scope.allowOptOut = false;
+
+            const status = scope.getOptStatus();
+
+            expect(status).toBe("Opt-out has been disabled. Members may not opt out.");
+        });
+
+        it("should describe both enabled when allowOptIn and allowOptOut are true", () => {
+            scope.initialAllowOptIn = true;
+            scope.initialAllowOptOut = true;
+            scope.allowOptIn = true;
+            scope.allowOptOut = true;
+
+            const status = scope.getOptStatus();
+
+            expect(status).toBe("Both options are enabled. Members may opt themselves in and out.");
+        });
+
+        it("should describe both disabled when allowOptIn and allowOptOut are false", () => {
+            scope.initialAllowOptIn = false;
+            scope.initialAllowOptOut = false;
+            scope.allowOptIn = false;
+            scope.allowOptOut = false;
+
+            const status = scope.getOptStatus();
+
+            expect(status).toBe("Both options are disabled. Members may not opt themselves in and out.");
+        });
+
+        it("should describe opt-in only when only allowOptIn is true", () => {
+            scope.initialAllowOptIn = true;
+            scope.initialAllowOptOut = false;
+            scope.allowOptIn = true;
+            scope.allowOptOut = false;
+
+            const status = scope.getOptStatus();
+
+            expect(status).toBe("Members may opt in.");
+        });
+
+        it("should describe opt-out only when only allowOptOut is true", () => {
+            scope.initialAllowOptIn = false;
+            scope.initialAllowOptOut = true;
+            scope.allowOptIn = false;
+            scope.allowOptOut = true;
+
+            const status = scope.getOptStatus();
+
+            expect(status).toBe("Members may opt out.");
+        });
+
+        it("should safely fall back when initial values are not booleans", () => {
+            scope.initialAllowOptIn = "yes";
+            scope.initialAllowOptOut = "no";
+
+            scope.allowOptIn = true;
+            scope.allowOptOut = false;
+
+            const status = scope.getOptStatus();
+
+            expect(status).toBe("Members may opt in.");
+        });
+    });
+
+    // Tests for the main Preferences submit flow and confirmation modal.
+    describe("submitPreferences", () => {
+        let openSpy;           // spy to watch $uibModal.open
+        let mockModalInstance; // fake modal object
+        let resolveConfig;     // stores the resolve object passed into open()
+        let confirmCallback;   // function to simulate user clicking "Yes"
+        let cancelCallback;    // function to simulate "Cancel"
+
+        beforeEach(() => {
+            // Default "original" state from server.
+            scope.initialAllowOptIn = true;
+            scope.initialAllowOptOut = false;
+
+            // Default current state: user toggled opt-in off.
+            scope.allowOptIn = false;
+            scope.allowOptOut = false;
+
+            // Spy on the functions that should run after confirmation.
+            spyOn(scope, "updateAllowOptIn").and.callFake(() => {});
+            spyOn(scope, "updateAllowOptOut").and.callFake(() => {});
+            spyOn(scope, "displayDynamicModal").and.callFake(() => {});
+            spyOn(scope, "initOptPreferenceStatuses").and.callFake(() => {});
+
+            // Fake modal instance with a .result.then() that captures callbacks.
+            mockModalInstance = {
+                result: {
+                    then: (onConfirm, onCancel) => {
+                        confirmCallback = onConfirm;
+                        cancelCallback = onCancel;
+                    }
+                }
+            };
+
+            // Intercept $uibModal.open so it doesn't open a real modal.
+            openSpy = spyOn(uibModal, "open").and.callFake((config) => {
+                // Save resolve so we can inspect what is passed to the modal.
+                resolveConfig = config.resolve;
+
+                // Attach fake modal instance to scope to mimic real behavior.
+                scope.optPreferenceModalInstance = mockModalInstance;
+
+                // Return fake modal instead of real one.
+                return mockModalInstance;
+            });
+        });
+
+        it("should open the preferences modal with a single opt-in change", () => {
+            // With the default setup, only opt-in has changed (true → false).
+            scope.submitPreferences();
+
+            // Verify that a modal was opened.
+            expect(openSpy).toHaveBeenCalled();
+            expect(resolveConfig).toBeDefined();
+
+            // Access the resolved data that would be injected into the modal controller.
+            const preferenceChanges = resolveConfig.preferenceChanges();
+            const isSingular = resolveConfig.isSingular();
+
+            // Only one change, describing disabling opt-in.
+            expect(preferenceChanges.length).toBe(1);
+            expect(preferenceChanges[0]).toBe("(Disable) Opt-in preference");
+            expect(isSingular).toBeTrue();
+        });
+
+        it("should open the preferences modal with both opt-in and opt-out changes", () => {
+            // Now simulate both preferences being changed.
+            scope.allowOptIn = false; // changed from true
+            scope.allowOptOut = true; // changed from false
+
+            scope.submitPreferences();
+
+            const preferenceChanges = resolveConfig.preferenceChanges();
+            const isSingular = resolveConfig.isSingular();
+
+            // Expect two entries for the two changes.
+            expect(preferenceChanges.length).toBe(2);
+            expect(preferenceChanges).toContain("(Disable) Opt-in preference");
+            expect(preferenceChanges).toContain("(Enable) Opt-out preference");
+            expect(isSingular).toBeFalse();
+        });
+
+        it("should update preferences and show confirmation when user confirms", () => {
+            // Arrange: both changed.
+            scope.allowOptIn = false;
+            scope.allowOptOut = true;
+
+            // Call submitPreferences to open the modal and register callbacks.
+            scope.submitPreferences();
+
+            // Act: simulate user clicking "Yes" in the modal.
+            confirmCallback();
+
+            // Assert: both update functions should be called.
+            expect(scope.updateAllowOptIn).toHaveBeenCalled();
+            expect(scope.updateAllowOptOut).toHaveBeenCalled();
+
+            // Confirmation modal should be shown with final status message.
+            expect(scope.displayDynamicModal)
+                .toHaveBeenCalledWith("Preferences Updated", scope.getOptStatus());
+
+            // After successful update, re-snapshot the new initial values.
+            expect(scope.initOptPreferenceStatuses).toHaveBeenCalled();
+        });
+
+        it("should not open the modal when no preferences have changed", () => {
+            // Case where nothing changed: current == initial.
+            scope.initialAllowOptIn = true;
+            scope.initialAllowOptOut = false;
+            scope.allowOptIn = true;
+            scope.allowOptOut = false;
+
+            // Clear call history from beforeEach.
+            openSpy.calls.reset();
+
+            scope.submitPreferences();
+
+            // No modal and no updates should occur.
+            expect(openSpy).not.toHaveBeenCalled();
+            expect(scope.updateAllowOptIn).not.toHaveBeenCalled();
+            expect(scope.updateAllowOptOut).not.toHaveBeenCalled();
+            expect(scope.displayDynamicModal).not.toHaveBeenCalled();
+        });
+    });
+
+    // Tests for detecting whether any sync destination was actually toggled.
+    describe("anySyncDestChanged", () => {
+        it("should return false when no sync destinations have changed", () => {
+            // initialSynced matches synced for all entries → no change.
+            scope.syncDestArray = [
+                { name: "destA", initialSynced: true, synced: true },
+                { name: "destB", initialSynced: false, synced: false }
+            ];
+
+            expect(scope.anySyncDestChanged()).toBeFalse();
+        });
+
+        it("should return true when at least one sync destination has changed", () => {
+            // destA changed from true to false.
+            scope.syncDestArray = [
+                { name: "destA", initialSynced: true, synced: false },
+                { name: "destB", initialSynced: false, synced: false }
+            ];
+
+            expect(scope.anySyncDestChanged()).toBeTrue();
+        });
+    });
+
+
 });
 
 describe("SyncDestModalController", () => {
